@@ -1,0 +1,41 @@
+CREATE OR REPLACE TABLE `neogen-ga4-export.reporting_enterprise.traffic_channel` 
+AS
+SELECT
+  (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'market_id') AS market_id,
+  device.web_info.hostname AS hostname,
+  LOWER(traffic_source.source) AS source,
+  LOWER(traffic_source.medium) AS medium,
+  -- Channel Group from mapping table
+  COALESCE(m.channel_group, 'Other') AS channel_group,
+  -- Event date as DATE
+  PARSE_DATE('%Y%m%d', e.event_date) AS date,
+  -- Users: Unique users
+  COUNT(DISTINCT e.user_pseudo_id) AS users,
+  -- Sessions: Unique sessions per user
+  COUNT(DISTINCT CONCAT(
+    e.user_pseudo_id,
+    CAST((SELECT value.int_value FROM UNNEST(e.event_params) WHERE key = 'ga_session_id') AS STRING)
+  )) AS sessions
+
+FROM
+  `neogen-ga4-export.analytics_331328809.events_*` e
+LEFT JOIN
+  `neogen-ga4-export.analytics_331328809.channel_mapping` m
+    ON REGEXP_CONTAINS(LOWER(e.traffic_source.medium), m.medium_pattern)
+    AND REGEXP_CONTAINS(LOWER(e.traffic_source.source), m.source_pattern)
+
+WHERE
+  _TABLE_SUFFIX BETWEEN '20250803'
+    AND FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
+
+GROUP BY
+  market_id,
+  hostname,
+  source,
+  medium, 
+  channel_group,
+  date
+
+ORDER BY
+  date ASC,
+  users DESC;
